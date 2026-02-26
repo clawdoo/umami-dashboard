@@ -75,12 +75,10 @@ function getDailyData(events: any[], startAt: number, endAt: number) {
   const start = new Date(startAt);
   const end = new Date(endAt);
   
-  // Initialize all days with 0
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     daily[formatDate(d.getTime())] = 0;
   }
   
-  // Count events by day
   events.forEach((event) => {
     const date = formatDate(event.createdAt);
     if (daily[date] !== undefined) {
@@ -94,10 +92,58 @@ function getDailyData(events: any[], startAt: number, endAt: number) {
   }));
 }
 
+// 分析闹钟类型分布
+function analyzeAlarmTypes(events: any[]) {
+  const types: Record<string, number> = {
+    '一次性': 0,
+    '每天': 0,
+    '工作日': 0,
+    '节假日': 0,
+    '规律工作日': 0,
+    '大小周': 0,
+    '规律休息日': 0,
+    '响一次': 0,
+    '自定义': 0,
+  };
+  
+  events.forEach((e) => {
+    const eventName = e.eventName || '';
+    if (eventName.includes('once')) types['一次性']++;
+    else if (eventName.includes('everyday')) types['每天']++;
+    else if (eventName.includes('workday') && !eventName.includes('regular')) types['工作日']++;
+    else if (eventName.includes('holiday')) types['节假日']++;
+    else if (eventName.includes('regular.workday')) types['规律工作日']++;
+    else if (eventName.includes('big.small') || eventName.includes('last.saturday')) types['大小周']++;
+    else if (eventName.includes('regular.weekend') || eventName.includes('regular.off')) types['规律休息日']++;
+    else if (eventName.includes('one.time')) types['响一次']++;
+    else if (eventName.includes('custom')) types['自定义']++;
+  });
+  
+  return Object.entries(types)
+    .filter(([_, count]) => count > 0)
+    .map(([name, value]) => ({ name, value }));
+}
+
+// 分析购买漏斗
+function analyzePurchaseFunnel(purchaseEvents: any[], clickEvents: any[]) {
+  const clicks = clickEvents.length;
+  const success = purchaseEvents.filter(e => e.eventName === 'setting.purchase.success').length;
+  const failed = purchaseEvents.filter(e => e.eventName === 'setting.purchase.failed').length;
+  const cancel = purchaseEvents.filter(e => e.eventName === 'setting.purchase.cancel').length;
+  
+  return {
+    clicks,
+    success,
+    failed,
+    cancel,
+    conversionRate: clicks > 0 ? ((success / clicks) * 100).toFixed(2) : '0.00',
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const range = searchParams.get('range') || '7'; // 7, 30, 90, today, week, month, 24h
+    const range = searchParams.get('range') || '7';
     const customStart = searchParams.get('startAt');
     const customEnd = searchParams.get('endAt');
     
@@ -105,7 +151,6 @@ export async function GET(request: Request) {
     const now = Date.now();
     
     if (customStart && customEnd) {
-      // Custom range
       startAt = parseInt(customStart);
       endAt = parseInt(customEnd);
     } else {
@@ -141,97 +186,162 @@ export async function GET(request: Request) {
       }
     }
     
-    // Calculate comparison period (same duration before startAt)
     const duration = endAt - startAt;
     const prevStartAt = startAt - duration;
     const prevEndAt = startAt;
     
-    // Fetch all data in parallel
+    // 批量获取所有事件
     const [
-      newUsersEvents,
-      newUsersPrev,
-      activeUsersEvents,
+      appLaunch,
+      newUsers,
+      dailyActive,
+      vipUsers,
+      annualVip,
+      lifetimeVip,
+      
+      // 闹钟相关
+      addAlarm,
+      editAlarm,
+      deleteAlarm,
+      alarmTypes,
+      
+      // 购买相关
+      purchaseMain,
+      purchaseSetting,
       purchaseSuccess,
-      purchaseAnnualClick,
-      purchaseLifetimeClick,
-      purchaseMonthlyClick,
+      purchaseFailed,
+      purchaseCancel,
+      clickAnnual,
+      clickLifetime,
+      
+      // Onboarding
+      onboardingAppear,
+      onboardingSkip,
+      onboardingComplete,
+      
+      // 其他
+      showRating,
+      iclickCloud,
+      
       stats,
       prevStats,
     ] = await Promise.all([
+      getEvents(startAt, endAt, 'app.launch'),
       getEvents(startAt, endAt, 'new.user'),
-      getEvents(prevStartAt, prevEndAt, 'new.user'),
       getEvents(startAt, endAt, 'user.daily.active'),
+      getEvents(startAt, endAt, 'user.vip'),
+      getEvents(startAt, endAt, 'user.annual.vip'),
+      getEvents(startAt, endAt, 'user.lifetime.vip'),
+      
+      // 闹钟
+      getEvents(startAt, endAt, 'alarm.add.click'),
+      getEvents(startAt, endAt, 'alarm.edit'),
+      getEvents(startAt, endAt, 'alarm.swipe.to.delete'),
+      getEvents(startAt, endAt),
+      
+      // 购买
+      getEvents(startAt, endAt, 'main.purchase.click'),
+      getEvents(startAt, endAt, 'setting.purchase'),
       getEvents(startAt, endAt, 'setting.purchase.success'),
+      getEvents(startAt, endAt, 'setting.purchase.failed'),
+      getEvents(startAt, endAt, 'setting.purchase.cancel'),
       getEvents(startAt, endAt, 'setting.purchase.annual.click'),
       getEvents(startAt, endAt, 'setting.purchase.lifetime.click'),
-      getEvents(startAt, endAt, 'setting.purchase.monthly.click'),
+      
+      // Onboarding
+      getEvents(startAt, endAt, 'onboarding.appear'),
+      getEvents(startAt, endAt, 'onboarding.skip.click'),
+      getEvents(startAt, endAt, 'onboarding.start.click'),
+      
+      // 其他
+      getEvents(startAt, endAt, 'user.show.rating.popup'),
+      getEvents(startAt, endAt, 'setting.icloud.click'),
+      
       getStats(startAt, endAt),
       getStats(prevStartAt, prevEndAt),
     ]);
     
-    const newUsers = newUsersEvents.data?.length || 0;
-    const newUsersPrevCount = newUsersPrev.data?.length || 0;
-    const dau = activeUsersEvents.data?.length || 0;
+    // 计算闹钟类型（从前面的所有事件中筛选）
+    const alarmTypeEvents = alarmTypes.data?.filter((e: any) => 
+      e.eventName?.includes('alarm.add.')
+    ) || [];
     
-    // Get visitors from stats as fallback for DAU
+    const purchaseClickEvents = [
+      ...(purchaseMain.data || []),
+      ...(purchaseSetting.data || []),
+    ];
+    const allPurchaseEvents = [
+      ...(purchaseSuccess.data || []),
+      ...(purchaseFailed.data || []),
+      ...(purchaseCancel.data || []),
+    ];
+    
+    const prevNewUsers = await getEvents(prevStartAt, prevEndAt, 'new.user');
+    
     const visitors = stats.visitors?.value || stats.visitors || 0;
-    const activeUsers = dau > 0 ? dau : visitors;
-    
-    // Analyze purchases
-    const successEvents = purchaseSuccess.data || [];
-    const annualClicks = new Set(purchaseAnnualClick.data?.map((e: any) => e.visitId));
-    const lifetimeClicks = new Set(purchaseLifetimeClick.data?.map((e: any) => e.visitId));
-    const monthlyClicks = new Set(purchaseMonthlyClick.data?.map((e: any) => e.visitId));
-    
-    let annual = 0, lifetime = 0, monthly = 0, unknown = 0;
-    successEvents.forEach((success: any) => {
-      const visitId = success.visitId;
-      if (annualClicks.has(visitId)) annual++;
-      else if (lifetimeClicks.has(visitId)) lifetime++;
-      else if (monthlyClicks.has(visitId)) monthly++;
-      else unknown++;
-    });
-    
-    // Get daily breakdown for charts
-    const days = Math.ceil((endAt - startAt) / (24 * 60 * 60 * 1000));
-    const newUsersDaily = getDailyData(newUsersEvents.data || [], startAt, endAt);
-    const activeUsersDaily = getDailyData(activeUsersEvents.data || [], startAt, endAt);
-    const purchasesDaily = getDailyData(successEvents, startAt, endAt);
-    
-    // Calculate changes
     const prevVisitors = prevStats.visitors?.value || prevStats.visitors || 0;
-    const visitorChange = prevVisitors > 0 
-      ? Math.round(((visitors - prevVisitors) / prevVisitors) * 100)
-      : visitors > 0 ? 100 : 0;
     
-    const newUserChange = newUsersPrevCount > 0
-      ? Math.round(((newUsers - newUsersPrevCount) / newUsersPrevCount) * 100)
-      : newUsers > 0 ? 100 : 0;
+    const days = Math.ceil((endAt - startAt) / (24 * 60 * 60 * 1000));
     
     return NextResponse.json({
       summary: {
-        newUsers,
-        newUsersChange,
-        dau: activeUsers,
+        // 用户指标
+        appLaunches: appLaunch.data?.length || 0,
+        newUsers: newUsers.data?.length || 0,
+        newUsersChange: calculateChange(newUsers.data?.length || 0, prevNewUsers.data?.length || 0),
+        activeUsers: dailyActive.data?.length || 0,
         visitors,
-        visitorChange,
-        purchases: {
-          total: successEvents.length,
-          monthly,
-          annual,
-          lifetime,
-          unknown,
+        visitorChange: calculateChange(visitors, prevVisitors),
+        
+        // VIP 用户
+        vipUsers: vipUsers.data?.length || 0,
+        annualVip: annualVip.data?.length || 0,
+        lifetimeVip: lifetimeVip.data?.length || 0,
+        
+        // 核心功能：闹钟
+        alarmsAdded: addAlarm.data?.length || 0,
+        alarmsEdited: editAlarm.data?.length || 0,
+        alarmsDeleted: deleteAlarm.data?.length || 0,
+        
+        // 购买漏斗
+        purchaseFunnel: analyzePurchaseFunnel(allPurchaseEvents, purchaseClickEvents),
+        
+        // Onboarding
+        onboarding: {
+          appear: onboardingAppear.data?.length || 0,
+          skip: onboardingSkip.data?.length || 0,
+          complete: onboardingComplete.data?.length || 0,
+          completionRate: onboardingAppear.data?.length > 0 
+            ? ((onboardingComplete.data?.length || 0) / onboardingAppear.data?.length * 100).toFixed(1)
+            : '0.0',
         },
-        conversionRate: visitors > 0 ? ((successEvents.length / visitors) * 100).toFixed(2) : '0.00',
+        
+        // 其他
+        ratingShown: showRating.data?.length || 0,
+        iclickCloud: iclickCloud.data?.length || 0,
+        
+        // 页面浏览
         pageviews: stats.pageviews?.value || stats.pageviews || 0,
         bounceRate: stats.bounces?.value || stats.bounces || 0,
         avgTime: stats.time?.value || stats.time || 0,
       },
+      
       charts: {
-        newUsers: newUsersDaily,
-        activeUsers: activeUsersDaily,
-        purchases: purchasesDaily,
+        newUsers: getDailyData(newUsers.data || [], startAt, endAt),
+        activeUsers: getDailyData(dailyActive.data || [], startAt, endAt),
+        appLaunches: getDailyData(appLaunch.data || [], startAt, endAt),
+        alarmsAdded: getDailyData(addAlarm.data || [], startAt, endAt),
+        purchases: getDailyData(purchaseSuccess.data || [], startAt, endAt),
       },
+      
+      breakdown: {
+        alarmTypes: analyzeAlarmTypes(alarmTypeEvents),
+        purchaseClicks: {
+          annual: clickAnnual.data?.length || 0,
+          lifetime: clickLifetime.data?.length || 0,
+        },
+      },
+      
       range: {
         startAt,
         endAt,
@@ -246,6 +356,11 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function calculateChange(current: number, previous: number): number {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return Math.round(((current - previous) / previous) * 100);
 }
 
 function getRangeLabel(range: string, startAt: number, endAt: number): string {
