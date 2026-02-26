@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Umami Dashboard
 
-## Getting Started
+EchoPie 的 Umami 数据分析仪表盘
 
-First, run the development server:
+## 功能
+
+- 📊 **实时数据展示**: 新用户、日活、周活、月活
+- 💰 **购买数据分析**: 月度/年度/终身购买统计
+- 📈 **趋势图表**: 7/30/90 天数据趋势
+- 🔄 **自动刷新**: 实时获取最新数据
+
+## 技术栈
+
+- Next.js 16 + TypeScript
+- Tailwind CSS + shadcn/ui
+- Recharts 图表库
+- Umami API
+
+## 部署
+
+### 方式一: Vercel 一键部署 (推荐)
+
+点击以下按钮直接部署:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/clawdoo/umami-dashboard)
+
+然后配置环境变量:
+- `UMAMI_URL`: https://ubm.echopie.com
+- `UMAMI_USERNAME`: admin
+- `UMAMI_PASSWORD`: umami
+
+### 方式二: CLI 部署
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+vercel --prod
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 本地开发
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+访问 http://localhost:3000
 
-## Learn More
+## API 接口
 
-To learn more about Next.js, take a look at the following resources:
+- `GET /api/umami?range=7` - 获取数据 (range: 7, 30, 90)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## GitHub
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+https://github.com/clawdoo/umami-dashboard
